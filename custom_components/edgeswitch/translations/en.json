@@ -1,0 +1,38 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to EdgeSwitch",
+        "description": "Enter the connection details for your Ubiquiti EdgeSwitch.",
+        "data": {
+          "host": "Host",
+          "username": "Username",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to the EdgeSwitch. Please check the host and try again.",
+      "invalid_auth": "Invalid authentication. Please check username and password.",
+      "unknown": "Unexpected error occurred."
+    },
+    "abort": {
+      "already_configured": "This EdgeSwitch is already configured."
+    }
+  },
+  "entity": {
+    "switch": {
+      "port_enabled": {
+        "name": "Port {port} Enabled"
+      },
+      "poe_enabled": {
+        "name": "Port {port} PoE"
+      }
+    },
+    "sensor": {
+      "poe_power": {
+        "name": "Port {port} Power"
+      }
+    }
+  }
+}

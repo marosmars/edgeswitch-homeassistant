@@ -1,0 +1,13 @@
+{
+  "domain": "edgeswitch",
+  "name": "Ubiquiti EdgeSwitch",
+  "codeowners": ["@marosmars"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/marosmars/edgeswitch-homeassistant",
+  "integration_type": "hub",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/marosmars/edgeswitch-homeassistant/issues",
+  "requirements": ["aiohttp>=3.8.0"],
+  "version": "1.1.0"
+}
