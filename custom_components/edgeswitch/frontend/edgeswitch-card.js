@@ -563,6 +563,12 @@ class EdgeSwitchCard extends HTMLElement {
           .vlegend { margin-top: 0; }
           .vlh { width: auto; gap: 8px; }
         }
+        /* phones: title on its own line, stat tiles below it */
+        @media (max-width: 600px) {
+          .top { flex-wrap: wrap !important; }
+          .stats { width: 100%; overflow-x: auto; flex-wrap: nowrap; }
+          .stat { flex: 1 0 auto; min-width: 54px; }
+        }
       </style>
       <ha-card class="${this._hass.themes?.darkMode ? 'dark' : ''}" style="${this._config.accent ? `--card-accent:${this._config.accent}` : ''}">
         ${this._header(ports)}
