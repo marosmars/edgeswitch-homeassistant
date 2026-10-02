@@ -373,8 +373,10 @@ class EdgeSwitchCard extends HTMLElement {
     const scroll = this.shadowRoot.querySelector('.chassis-wrap')?.scrollLeft || 0;
     this.shadowRoot.innerHTML = `
       <style>
-        ha-card { padding: 10px 12px 12px; --ok: #4caf50; --slow: #ffa000; --pw: #f9a825; --bad: var(--error-color, #db4437); }
-        .top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; }
+        ha-card { padding: 10px 12px 12px; box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 4px 14px rgba(0,0,0,.07); --ok: #4caf50; --slow: #ffa000; --pw: #f9a825; --bad: var(--error-color, #db4437); }
+        .top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px;
+                margin: -10px -12px 0; padding: 8px 12px; border-radius: var(--ha-card-border-radius, 12px) var(--ha-card-border-radius, 12px) 0 0;
+                background: color-mix(in srgb, var(--primary-color) 7%, transparent); border-bottom: 1px solid var(--divider-color); }
         .id { display: flex; align-items: center; gap: 10px; min-width: 0; }
         .id ha-icon { --mdc-icon-size: 34px; color: var(--primary-color); }
         .host { font-size: 18px; font-weight: 600; line-height: 1.2; }
@@ -414,7 +416,7 @@ class EdgeSwitchCard extends HTMLElement {
         .side { position: relative; flex: 0 0 300px; border-radius: 10px; background: var(--fp-panel); box-shadow: inset 0 1px 3px rgba(0,0,0,.15); }
         .sidein { position: absolute; inset: 0; box-sizing: border-box; padding: 10px 12px; overflow: hidden;
                   display: flex; flex-direction: column; gap: 3px; }
-        .rjgrid { display: grid; grid-template-columns: repeat(var(--cols), minmax(100px, 120px)); grid-template-rows: auto auto; gap: 4px 8px; }
+        .rjgrid { display: grid; grid-template-columns: repeat(var(--cols), minmax(92px, 120px)); grid-template-rows: auto auto; gap: 4px 8px; }
         .sfpgrid { display: grid; grid-template-rows: auto auto; gap: 2px; padding-left: 8px; border-left: 1px solid var(--fp-sep); }
         .cell { display: flex; flex-direction: column; gap: 4px; padding: 5px 6px; border-radius: 8px; cursor: pointer;
                 border: 1px solid transparent; transition: background .15s, border-color .15s; min-width: 0; }
@@ -513,7 +515,7 @@ class EdgeSwitchCard extends HTMLElement {
         @keyframes spin { to { transform: rotate(360deg); } }
         .pinfo { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
         /* narrow card: panel goes under the ports, info left and buttons right */
-        @container (max-width: 1360px) {
+        @container (max-width: 1180px) {
           .chassis { flex-direction: column; }
           .side { flex: 0 0 96px; }
           .sidein { flex-direction: row; align-items: center; gap: 16px; }
