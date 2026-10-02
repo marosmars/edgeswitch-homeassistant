@@ -171,6 +171,8 @@ class EdgeSwitchCard extends HTMLElement {
         poe: poe ? poe.state : null,
         poeMode: poe?.attributes.poe_mode,
         watts: this._num(`sensor.${p}_port_${n}_poe_power`) || 0,
+        // error/drop counters ride on the RX rate sensor (integration ≥ 1.2.0)
+        ctr: this._st(`sensor.${p}_port_${n}_rx_rate`)?.attributes || {},
         // rx = received by the switch = the device's upload; tx = the device's download
         upBps: this._bps(`sensor.${p}_port_${n}_rx_rate`),
         downBps: this._bps(`sensor.${p}_port_${n}_tx_rate`),
@@ -280,6 +282,16 @@ class EdgeSwitchCard extends HTMLElement {
       </div>`;
   }
 
+  // Hover text: name, link, rates and the port's error/drop counters.
+  _tip(x) {
+    const c = x.ctr;
+    const lines = [`${x.n}: ${x.name || '—'}`];
+    lines.push(x.up ? `${x.rawSpeed} · ↓${this._fmtRate(x.downBps, true)} ↑${this._fmtRate(x.upBps, true)}` : this._t.noLink);
+    if (c.dropped !== undefined) lines.push(`drops ${c.dropped} · errors ${c.errors ?? 0} (rx ${c.rx_errors ?? 0} / tx ${c.tx_errors ?? 0})`);
+    if (c.rx_packets !== undefined) lines.push(`packets rx ${c.rx_packets} / tx ${c.tx_packets}`);
+    return lines.join('\n').replace(/"/g, '&quot;');
+  }
+
   _cell(x, bottom) {
     const busy = Object.values(this._busy).some((b) => b.n === x.n);
     const cls = [
@@ -304,7 +316,7 @@ class EdgeSwitchCard extends HTMLElement {
         <div class="jack">${x.watts > 0 ? `<span class="w">${x.watts.toFixed(1)}W</span>` : ''}${dots ? `<span class="dots">${dots}</span>` : ''}${x.slow ? `<span class="jspd">${x.speed}</span>` : ''}${busy ? '<ha-icon icon="mdi:loading" class="spin"></ha-icon>' : ''}</div>
         <span class="leds"><i class="l1"></i><i class="l2"></i></span>
       </div>`;
-    return `<div class="${cls}${nativeColor ? ' nv' : ''}"${nativeColor ? ` style="--vc:${nativeColor}"` : ''} data-port="${x.n}" title="${x.n}: ${x.name || '—'}">${bottom ? jack + label : label + jack}</div>`;
+    return `<div class="${cls}${nativeColor ? ' nv' : ''}"${nativeColor ? ` style="--vc:${nativeColor}"` : ''} data-port="${x.n}" title="${this._tip(x)}">${bottom ? jack + label : label + jack}</div>`;
   }
 
   _chassis(ports) {
@@ -367,6 +379,7 @@ class EdgeSwitchCard extends HTMLElement {
       <div class="ptitle"><span class="dn">${x.n}</span><span class="pname">${x.name || `<i>${t.noName}</i>`}</span>${prot ? `<ha-icon class="shield" icon="mdi:shield-lock" title="${t.protected}"></ha-icon>` : ''}
         <button class="x" data-close="1" title="Esc"><ha-icon icon="mdi:close"></ha-icon></button></div>
       <div class="pmeta prate">${x.enabled ? (x.up ? x.rawSpeed : t.noLink) : `<b class="bad">${t.portOff}</b>`} · STP ${x.stp || '–'}${x.up ? `<span class="dn-r">↓${this._fmtRate(x.downBps, true)}</span><span class="up-r">↑${this._fmtRate(x.upBps, true)}</span>` : ''}</div>
+      ${x.ctr.dropped !== undefined ? `<div class="pmeta${(x.ctr.dropped || x.ctr.errors) ? ' bad' : ''}">drops ${x.ctr.dropped} · errors ${x.ctr.errors ?? 0} (rx ${x.ctr.rx_errors ?? 0} / tx ${x.ctr.tx_errors ?? 0})</div>` : ''}
       ${vlans ? `<div class="pmeta one pvl">${vlans}</div>` : ''}
       </div>
       <div class="pacts">

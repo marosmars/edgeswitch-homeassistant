@@ -518,8 +518,25 @@ class EdgeSwitchPortRateSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return extra state attributes."""
-        return {"port_id": self._port_id, "port_number": self._port_number}
+        """Return extra state attributes; the RX sensor also carries the port's error and drop counters."""
+        attrs: dict[str, Any] = {"port_id": self._port_id, "port_number": self._port_number}
+        if self._key != "rxRate":
+            return attrs
+        for iface in self.coordinator.data.get("statistics", {}).get("interfaces", []):
+            if iface.get("id") == self._port_id:
+                st = iface.get("statistics", {})
+                for src, dst in (
+                    ("dropped", "dropped"),
+                    ("errors", "errors"),
+                    ("rxErrors", "rx_errors"),
+                    ("txErrors", "tx_errors"),
+                    ("rxPackets", "rx_packets"),
+                    ("txPackets", "tx_packets"),
+                ):
+                    if src in st:
+                        attrs[dst] = st[src]
+                break
+        return attrs
 
 
 class EdgeSwitchPoEPowerSensor(CoordinatorEntity, SensorEntity):
