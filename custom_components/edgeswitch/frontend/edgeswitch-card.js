@@ -521,7 +521,11 @@ class EdgeSwitchCard extends HTMLElement {
           .pacts { margin-top: 0; flex: none; }
           .act { flex: none; width: 124px; }
           .legend { flex-direction: row; flex-wrap: wrap; column-gap: 16px; margin-top: 0; }
-          .sidein:has(.pick) { flex-direction: column; align-items: flex-start; justify-content: center; }
+          .sidein:has(.pick) { flex-direction: row; flex-wrap: wrap; align-content: center; align-items: center; gap: 4px 20px; }
+          .sidein:has(.pick) .pick { display: none; }
+          .legend { display: flex; flex-wrap: wrap; gap: 3px 14px; margin-top: 0; }
+          .vlegend { margin-top: 0; }
+          .vlh { width: auto; gap: 8px; }
         }
       </style>
       <ha-card class="${this._hass.themes?.darkMode ? 'dark' : ''}">
