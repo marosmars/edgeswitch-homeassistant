@@ -452,8 +452,8 @@ class EdgeSwitchCard extends HTMLElement {
         .t { font-size: 10.5px; font-weight: 700; letter-spacing: .02em; overflow: hidden; text-overflow: ellipsis; }
         .t.trunk { color: var(--fp-trunk); } .t.vlan { color: var(--fp-vlan); } .t.slowt { color: var(--fp-slow); }
         .t.off { color: #fff; background: var(--bad); padding: 0 4px; border-radius: 3px; line-height: 14px; }
-                .rates { display: flex; justify-content: space-between; gap: 8px; width: 100%; height: 16px;
-                 font-size: 12px; letter-spacing: -.01em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+                .rates { display: flex; justify-content: space-between; gap: 8px; width: 100%; height: 17px;
+                 font-size: 13px; letter-spacing: -.01em; font-variant-numeric: tabular-nums; white-space: nowrap; }
         .rates .zero { opacity: .45; }
         .trk { --mdc-icon-size: 13px; color: var(--fp-trunk); flex: none; margin-right: 2px; }
         
