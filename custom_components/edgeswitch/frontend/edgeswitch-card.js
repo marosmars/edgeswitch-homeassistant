@@ -373,12 +373,12 @@ class EdgeSwitchCard extends HTMLElement {
     const scroll = this.shadowRoot.querySelector('.chassis-wrap')?.scrollLeft || 0;
     this.shadowRoot.innerHTML = `
       <style>
-        ha-card { padding: 10px 12px 12px; box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 4px 14px rgba(0,0,0,.07); --ok: #4caf50; --slow: #ffa000; --pw: #f9a825; --bad: var(--error-color, #db4437); }
+        ha-card { padding: 10px 12px 12px; --accent: var(--card-accent, #26a69a); box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 4px 14px rgba(0,0,0,.07); --ok: #4caf50; --slow: #ffa000; --pw: #f9a825; --bad: var(--error-color, #db4437); }
         .top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px;
                 margin: -10px -12px 0; padding: 8px 12px; border-radius: var(--ha-card-border-radius, 12px) var(--ha-card-border-radius, 12px) 0 0;
-                background: color-mix(in srgb, var(--primary-color) 7%, transparent); border-bottom: 1px solid var(--divider-color); }
+                background: color-mix(in srgb, var(--accent) 11%, transparent); border-bottom: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); }
         .id { display: flex; align-items: center; gap: 10px; min-width: 0; }
-        .id ha-icon { --mdc-icon-size: 34px; color: var(--primary-color); }
+        .id ha-icon { --mdc-icon-size: 34px; color: var(--accent); }
         .host { font-size: 18px; font-weight: 600; line-height: 1.2; }
         .meta { font-size: 12px; color: var(--secondary-text-color); }
         .stats { display: flex; gap: 8px; }
@@ -530,7 +530,7 @@ class EdgeSwitchCard extends HTMLElement {
           .vlh { width: auto; gap: 8px; }
         }
       </style>
-      <ha-card class="${this._hass.themes?.darkMode ? 'dark' : ''}">
+      <ha-card class="${this._hass.themes?.darkMode ? 'dark' : ''}" style="${this._config.accent ? `--card-accent:${this._config.accent}` : ''}">
         ${this._header(ports)}
         ${this._chassis(ports)}
       </ha-card>`;
