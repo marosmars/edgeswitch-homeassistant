@@ -19,5 +19,21 @@
     "abort": {
       "already_configured": "This EdgeSwitch is already configured."
     }
+  },
+  "services": {
+    "cycle_port": {
+      "name": "Power-cycle port or PoE",
+      "description": "Turns an EdgeSwitch port or PoE switch off, waits, and turns it back on. Runs inside Home Assistant, so the port comes back even if the dashboard loses its connection.",
+      "fields": {
+        "entity_id": {
+          "name": "Switch",
+          "description": "Port switch (switch.*_port_N) or PoE switch (switch.*_port_N_poe)."
+        },
+        "off_seconds": {
+          "name": "Off time",
+          "description": "How long the port or PoE stays off."
+        }
+      }
+    }
   }
 }

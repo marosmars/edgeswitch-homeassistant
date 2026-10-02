@@ -1,14 +1,21 @@
 {
   "domain": "edgeswitch",
   "name": "Ubiquiti EdgeSwitch",
-  "codeowners": ["@marosmars"],
+  "codeowners": [
+    "@marosmars"
+  ],
   "config_flow": true,
-  "dependencies": [],
+  "dependencies": [
+    "frontend",
+    "http"
+  ],
   "documentation": "https://github.com/marosmars/edgeswitch-homeassistant",
   "integration_type": "hub",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/marosmars/edgeswitch-homeassistant/issues",
-  "loggers": ["custom_components.edgeswitch"],
+  "loggers": [
+    "custom_components.edgeswitch"
+  ],
   "requirements": [],
   "version": "1.2.0"
 }

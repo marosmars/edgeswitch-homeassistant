@@ -78,6 +78,8 @@ A Home Assistant custom integration for Ubiquiti EdgeSwitch devices. Monitor and
 | `sensor.<name>_uptime` | Device uptime |
 | `sensor.<name>_firmware` | Firmware version |
 | `sensor.<name>_temperature_*` | Temperature sensors (varies by model) |
+| `sensor.<name>_port_X_rx_rate` | Traffic received by the switch on port X (bit/s, shown in Mbit/s) |
+| `sensor.<name>_port_X_tx_rate` | Traffic sent by the switch on port X (bit/s, shown in Mbit/s) |
 | `sensor.<name>_port_X_poe_power` | PoE power consumption on port X (W) |
 | `sensor.<name>_total_poe_power` | Total PoE power consumption (W) |
 | `sensor.<name>_management_ip` | Management IP address |
@@ -106,6 +108,41 @@ A Home Assistant custom integration for Ubiquiti EdgeSwitch devices. Monitor and
 | `text.<name>_port_X_name` | Port name/description |
 | `text.<name>_hostname` | System hostname |
 | `text.<name>_timezone` | System timezone |
+
+## Services
+
+### `edgeswitch.cycle_port`
+
+Turns a port switch (`switch.<name>_port_X`) or PoE switch (`switch.<name>_port_X_poe`) off, waits `off_seconds` (default 5), and turns it back on. It runs inside Home Assistant, so the port comes back even if the caller loses its connection while the port is down.
+
+```yaml
+action: edgeswitch.cycle_port
+data:
+  entity_id: switch.es16_port_5_poe
+  off_seconds: 10
+```
+
+## Dashboard Card
+
+The integration ships a Lovelace card and loads it on every dashboard automatically; no resource needs to be added.
+
+```yaml
+type: custom:edgeswitch-card
+protect: [1, 2]   # ports that must never be turned off from the card (uplink / path to HA)
+```
+
+It draws the switch front panel (odd ports on top, even below, SFP cages at the end) with link and PoE LEDs, PoE watts, current down/up rates, a trunk icon, and VLAN colors (untagged VLAN = port outline, tagged VLANs = dots). The header shows CPU, RAM, temperature (colored by threshold), link count and PoE budget. Tap a port to see its details in the side panel, where PoE and the port can be turned off/on or restarted; every action that cuts power or link needs a second tap.
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `prefix` | auto-detected | Entity id prefix (needed only with more than one switch) |
+| `protect` | `[]` | Ports without port off/restart buttons. Protect the ports that connect HA to the switch: once turned off, HA could not turn them back on |
+| `poe_budget` | from the model name | PoE budget in W for the header bar |
+| `sfp` | from the model name | SFP port numbers |
+| `vlan_colors` | built-in palette | Map of VLAN id to color |
+| `cycle_seconds` | `5` | Off time for restarts |
+
+The UI follows the Home Assistant language (English and Slovak built in) and the light/dark theme.
 
 ## Port Attributes
 

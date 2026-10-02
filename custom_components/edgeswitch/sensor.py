@@ -10,7 +10,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, UnitOfTemperature, UnitOfPower, UnitOfTime
+from homeassistant.const import PERCENTAGE, UnitOfDataRate, UnitOfTemperature, UnitOfPower, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -92,6 +92,27 @@ async def async_setup_entry(
                 )
         else:
             _LOGGER.debug("No temperature sensors available")
+
+        # Traffic rate sensors per physical port (rx = into the switch, tx = out to the device)
+        for iface in stats.get("interfaces", []):
+            iface_id = iface.get("id", "")
+            if not iface_id.startswith("0/") or "rxRate" not in iface.get("statistics", {}):
+                continue
+            try:
+                port_number = int(iface_id.split("/")[1])
+            except (IndexError, ValueError):
+                continue
+            for direction in ("rx", "tx"):
+                entities.append(
+                    EdgeSwitchPortRateSensor(
+                        coordinator=coordinator,
+                        device_info=device_info,
+                        entry_id=config_entry.entry_id,
+                        port_id=iface_id,
+                        port_number=port_number,
+                        direction=direction,
+                    )
+                )
 
         # PoE power sensors per port - only if PoE is supported
         if features.get(FEATURE_POE_SUPPORT, False):
@@ -449,6 +470,56 @@ class EdgeSwitchTemperatureSensor(CoordinatorEntity, SensorEntity):
             "sensor_name": self._temp_name,
             "sensor_type": self._temp_type,
         }
+
+
+class EdgeSwitchPortRateSensor(CoordinatorEntity, SensorEntity):
+    """Current traffic rate of one port in one direction (rx = received by the switch)."""
+
+    _attr_has_entity_name = True
+    _attr_device_class = SensorDeviceClass.DATA_RATE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfDataRate.BITS_PER_SECOND
+    _attr_suggested_unit_of_measurement = UnitOfDataRate.MEGABITS_PER_SECOND
+    _attr_suggested_display_precision = 2
+
+    def __init__(
+        self,
+        coordinator,
+        device_info: DeviceInfo,
+        entry_id: str,
+        port_id: str,
+        port_number: int,
+        direction: str,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator)
+        self._port_id = port_id
+        self._port_number = port_number
+        self._key = f"{direction}Rate"
+        self._attr_unique_id = f"{entry_id}_port_{port_number}_{direction}_rate"
+        self._attr_name = f"Port {port_number} {direction.upper()} Rate"
+        self._attr_device_info = device_info
+        self._attr_icon = "mdi:download-network" if direction == "rx" else "mdi:upload-network"
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        if not self.coordinator.last_update_success or not self.coordinator.data:
+            return False
+        return self.coordinator.data.get("features", {}).get(FEATURE_STATISTICS, False)
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the rate in bit/s."""
+        for iface in self.coordinator.data.get("statistics", {}).get("interfaces", []):
+            if iface.get("id") == self._port_id:
+                return iface.get("statistics", {}).get(self._key)
+        return None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return extra state attributes."""
+        return {"port_id": self._port_id, "port_number": self._port_number}
 
 
 class EdgeSwitchPoEPowerSensor(CoordinatorEntity, SensorEntity):

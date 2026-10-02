@@ -1,16 +1,29 @@
 """The EdgeSwitch integration."""
 from __future__ import annotations
 
+import asyncio
+import hashlib
 from collections.abc import Awaitable
 from datetime import timedelta
 import logging
+from pathlib import Path
 from typing import Any
+
+import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME, Platform
-from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
+from homeassistant.components.frontend import add_extra_js_url
+from homeassistant.components.http import StaticPathConfig
+from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import (
+    ConfigEntryNotReady,
+    HomeAssistantError,
+    ServiceValidationError,
+)
+from homeassistant.helpers import config_validation as cv, entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.typing import ConfigType
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -35,6 +48,50 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [Platform.SWITCH, Platform.BINARY_SENSOR, Platform.SENSOR, Platform.SELECT, Platform.TEXT]
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+CARD_URL = f"/{DOMAIN}/edgeswitch-card.js"
+CARD_PATH = Path(__file__).parent / "frontend" / "edgeswitch-card.js"
+
+SERVICE_CYCLE_PORT = "cycle_port"
+CYCLE_PORT_SCHEMA = vol.Schema(
+    {
+        vol.Required("entity_id"): cv.entity_id,
+        vol.Optional("off_seconds", default=5): vol.All(vol.Coerce(int), vol.Range(min=1, max=120)),
+    }
+)
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Serve the bundled Lovelace card and register the cycle_port service."""
+    if hass.http is not None:
+        # The file is served with long cache headers, so the URL carries a content hash.
+        digest = await hass.async_add_executor_job(
+            lambda: hashlib.sha1(CARD_PATH.read_bytes()).hexdigest()[:10]
+        )
+        await hass.http.async_register_static_paths(
+            [StaticPathConfig(CARD_URL, str(CARD_PATH), True)]
+        )
+        add_extra_js_url(hass, f"{CARD_URL}?v={digest}")
+
+    async def async_cycle_port(call: ServiceCall) -> None:
+        """Turn an EdgeSwitch port or PoE switch off, wait, and turn it back on.
+
+        Runs inside HA, so the switch is re-enabled even if the caller (a dashboard)
+        loses its connection while the port is down.
+        """
+        entity_id = call.data["entity_id"]
+        entry = er.async_get(hass).async_get(entity_id)
+        if entry is None or entry.platform != DOMAIN or entry.domain != "switch":
+            raise ServiceValidationError(f"{entity_id} is not an EdgeSwitch switch entity")
+        target = {"entity_id": entity_id}
+        await hass.services.async_call("switch", "turn_off", target, blocking=True)
+        await asyncio.sleep(call.data["off_seconds"])
+        await hass.services.async_call("switch", "turn_on", target, blocking=True)
+
+    hass.services.async_register(DOMAIN, SERVICE_CYCLE_PORT, async_cycle_port, schema=CYCLE_PORT_SCHEMA)
+    return True
 
 
 async def async_write(call: Awaitable[bool], description: str) -> None:
