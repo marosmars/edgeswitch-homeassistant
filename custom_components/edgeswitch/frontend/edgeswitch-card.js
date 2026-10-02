@@ -32,6 +32,26 @@ const STRINGS = {
 const VLAN_PALETTE = ['#42a5f5', '#ab47bc', '#26a69a', '#ef6c00', '#ec407a', '#7cb342', '#8d6e63', '#5c6bc0'];
 const SPEED = { '1000-full': '1G', '100-full': '100M', '100-half': '100M½', '10-full': '10M', '10-half': '10M½' };
 
+
+// Patch the shadow DOM in place instead of replacing it: a fresh <ha-card> renders a moment later, so rebuilding it on
+// every hass update briefly shrinks the page and the browser snaps the scroll position back to the top.
+function paintCard(el, html) {
+  const root = el.shadowRoot;
+  const m = html.match(/^\s*<style>([\s\S]*?)<\/style>\s*<ha-card([^>]*)>([\s\S]*)<\/ha-card>\s*$/);
+  if (!m) { root.innerHTML = html; root.__card = null; root.__html = null; return; }
+  if (!root.__card) {
+    root.innerHTML = '<style></style><ha-card><div class="paint-root" style="display:contents"></div></ha-card>';
+    root.__style = root.querySelector('style');
+    root.__card = root.querySelector('ha-card');
+    root.__body = root.querySelector('.paint-root');
+  }
+  if (root.__style.textContent !== m[1]) root.__style.textContent = m[1];
+  const attr = (n) => (m[2].match(new RegExp(`${n}="([^"]*)"`)) || [])[1] || '';
+  if (root.__card.className !== attr('class')) root.__card.className = attr('class');
+  if ((root.__card.getAttribute('style') || '') !== attr('style')) root.__card.setAttribute('style', attr('style'));
+  if (root.__html !== m[3]) { root.__html = m[3]; root.__body.innerHTML = m[3]; }
+}
+
 class EdgeSwitchCard extends HTMLElement {
   setConfig(config) {
     this._config = { protect: [], cycle_seconds: 5, ...config };
@@ -371,7 +391,7 @@ class EdgeSwitchCard extends HTMLElement {
       return;
     }
     const scroll = this.shadowRoot.querySelector('.chassis-wrap')?.scrollLeft || 0;
-    this.shadowRoot.innerHTML = `
+    paintCard(this, `
       <style>
         ha-card { padding: 10px 12px 12px; --accent: var(--card-accent, #26a69a); box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 4px 14px rgba(0,0,0,.07); --ok: #4caf50; --slow: #ffa000; --pw: #f9a825; --bad: var(--error-color, #db4437); }
         .top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px;
@@ -533,7 +553,7 @@ class EdgeSwitchCard extends HTMLElement {
       <ha-card class="${this._hass.themes?.darkMode ? 'dark' : ''}" style="${this._config.accent ? `--card-accent:${this._config.accent}` : ''}">
         ${this._header(ports)}
         ${this._chassis(ports)}
-      </ha-card>`;
+      </ha-card>`);
     const wrap = this.shadowRoot.querySelector('.chassis-wrap');
     if (wrap) wrap.scrollLeft = scroll;
   }
