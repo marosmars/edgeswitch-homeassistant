@@ -7,10 +7,11 @@ from typing import Any
 from homeassistant.components.text import TextEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from . import async_write
 from .const import DOMAIN, FEATURE_SYSTEM_INFO
 
 _LOGGER = logging.getLogger(__name__)
@@ -134,12 +135,12 @@ class EdgeSwitchPortNameText(CoordinatorEntity, TextEntity):
     async def async_set_value(self, value: str) -> None:
         """Set the port name."""
         _LOGGER.debug("Setting port %s name to '%s'", self._port_id, value)
-        success = await self._api.set_port_name(self._port_id, value)
-        if success:
-            _LOGGER.debug("Successfully set port %s name to '%s', refreshing data", self._port_id, value)
-            await self.coordinator.async_request_refresh()
-        else:
-            _LOGGER.error("Failed to set port %s name to '%s'", self._port_id, value)
+        await async_write(
+            self._api.set_port_name(self._port_id, value),
+            f"set port {self._port_id} name to '{value}'",
+        )
+        _LOGGER.debug("Successfully set port %s name to '%s', refreshing data", self._port_id, value)
+        await self.coordinator.async_request_refresh()
 
 
 class EdgeSwitchHostnameText(CoordinatorEntity, TextEntity):
@@ -182,12 +183,12 @@ class EdgeSwitchHostnameText(CoordinatorEntity, TextEntity):
     async def async_set_value(self, value: str) -> None:
         """Set the hostname."""
         _LOGGER.debug("Setting hostname to '%s'", value)
-        success = await self._api.set_system_hostname(value)
-        if success:
-            _LOGGER.debug("Successfully set hostname to '%s', refreshing data", value)
-            await self.coordinator.async_request_refresh()
-        else:
-            _LOGGER.error("Failed to set hostname to '%s'", value)
+        await async_write(
+            self._api.set_system_hostname(value),
+            f"set hostname to '{value}'",
+        )
+        _LOGGER.debug("Successfully set hostname to '%s', refreshing data", value)
+        await self.coordinator.async_request_refresh()
 
 
 class EdgeSwitchTimezoneText(CoordinatorEntity, TextEntity):
@@ -230,9 +231,9 @@ class EdgeSwitchTimezoneText(CoordinatorEntity, TextEntity):
     async def async_set_value(self, value: str) -> None:
         """Set the timezone."""
         _LOGGER.debug("Setting timezone to '%s'", value)
-        success = await self._api.set_system_timezone(value)
-        if success:
-            _LOGGER.debug("Successfully set timezone to '%s', refreshing data", value)
-            await self.coordinator.async_request_refresh()
-        else:
-            _LOGGER.error("Failed to set timezone to '%s'", value)
+        await async_write(
+            self._api.set_system_timezone(value),
+            f"set timezone to '{value}'",
+        )
+        _LOGGER.debug("Successfully set timezone to '%s', refreshing data", value)
+        await self.coordinator.async_request_refresh()

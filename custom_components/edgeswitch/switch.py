@@ -7,10 +7,11 @@ from typing import Any
 from homeassistant.components.switch import SwitchEntity, SwitchDeviceClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from . import async_write
 from .const import DOMAIN, POE_MODE_ACTIVE, POE_MODE_24V, FEATURE_STP_SUPPORT
 
 _LOGGER = logging.getLogger(__name__)
@@ -190,22 +191,22 @@ class EdgeSwitchPortSwitch(CoordinatorEntity, SwitchEntity):
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on the port."""
         _LOGGER.debug("Enabling port %s", self._port_id)
-        success = await self._api.set_port_enabled(self._port_id, True)
-        if success:
-            _LOGGER.debug("Successfully enabled port %s, refreshing data", self._port_id)
-            await self.coordinator.async_request_refresh()
-        else:
-            _LOGGER.error("Failed to enable port %s", self._port_id)
+        await async_write(
+            self._api.set_port_enabled(self._port_id, True),
+            f"enable port {self._port_id}",
+        )
+        _LOGGER.debug("Successfully enabled port %s, refreshing data", self._port_id)
+        await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off the port."""
         _LOGGER.debug("Disabling port %s", self._port_id)
-        success = await self._api.set_port_enabled(self._port_id, False)
-        if success:
-            _LOGGER.debug("Successfully disabled port %s, refreshing data", self._port_id)
-            await self.coordinator.async_request_refresh()
-        else:
-            _LOGGER.error("Failed to disable port %s", self._port_id)
+        await async_write(
+            self._api.set_port_enabled(self._port_id, False),
+            f"disable port {self._port_id}",
+        )
+        _LOGGER.debug("Successfully disabled port %s, refreshing data", self._port_id)
+        await self.coordinator.async_request_refresh()
 
 
 class EdgeSwitchPoESwitch(CoordinatorEntity, SwitchEntity):
@@ -280,22 +281,22 @@ class EdgeSwitchPoESwitch(CoordinatorEntity, SwitchEntity):
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on PoE for the port."""
         _LOGGER.debug("Enabling PoE on port %s", self._port_id)
-        success = await self._api.set_poe_enabled(self._port_id, True)
-        if success:
-            _LOGGER.debug("Successfully enabled PoE on port %s, refreshing data", self._port_id)
-            await self.coordinator.async_request_refresh()
-        else:
-            _LOGGER.error("Failed to enable PoE on port %s", self._port_id)
+        await async_write(
+            self._api.set_poe_enabled(self._port_id, True),
+            f"enable PoE on port {self._port_id}",
+        )
+        _LOGGER.debug("Successfully enabled PoE on port %s, refreshing data", self._port_id)
+        await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off PoE for the port."""
         _LOGGER.debug("Disabling PoE on port %s", self._port_id)
-        success = await self._api.set_poe_enabled(self._port_id, False)
-        if success:
-            _LOGGER.debug("Successfully disabled PoE on port %s, refreshing data", self._port_id)
-            await self.coordinator.async_request_refresh()
-        else:
-            _LOGGER.error("Failed to disable PoE on port %s", self._port_id)
+        await async_write(
+            self._api.set_poe_enabled(self._port_id, False),
+            f"disable PoE on port {self._port_id}",
+        )
+        _LOGGER.debug("Successfully disabled PoE on port %s, refreshing data", self._port_id)
+        await self.coordinator.async_request_refresh()
 
 
 class EdgeSwitchSTPSwitch(CoordinatorEntity, SwitchEntity):
@@ -358,19 +359,19 @@ class EdgeSwitchSTPSwitch(CoordinatorEntity, SwitchEntity):
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Enable STP."""
         _LOGGER.debug("Enabling STP")
-        success = await self._api.set_stp_enabled(True)
-        if success:
-            _LOGGER.debug("Successfully enabled STP, refreshing data")
-            await self.coordinator.async_request_refresh()
-        else:
-            _LOGGER.error("Failed to enable STP")
+        await async_write(
+            self._api.set_stp_enabled(True),
+            "enable STP",
+        )
+        _LOGGER.debug("Successfully enabled STP, refreshing data")
+        await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Disable STP."""
         _LOGGER.debug("Disabling STP")
-        success = await self._api.set_stp_enabled(False)
-        if success:
-            _LOGGER.debug("Successfully disabled STP, refreshing data")
-            await self.coordinator.async_request_refresh()
-        else:
-            _LOGGER.error("Failed to disable STP")
+        await async_write(
+            self._api.set_stp_enabled(False),
+            "disable STP",
+        )
+        _LOGGER.debug("Successfully disabled STP, refreshing data")
+        await self.coordinator.async_request_refresh()

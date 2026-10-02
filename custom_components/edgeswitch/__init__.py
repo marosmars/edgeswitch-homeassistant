@@ -1,6 +1,7 @@
 """The EdgeSwitch integration."""
 from __future__ import annotations
 
+from collections.abc import Awaitable
 from datetime import timedelta
 import logging
 from typing import Any
@@ -8,11 +9,17 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import EdgeSwitchAPI
+from .api import (
+    EdgeSwitchAPI,
+    EdgeSwitchAuthError,
+    EdgeSwitchConnectionError,
+    EdgeSwitchError,
+)
 from .const import (
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
@@ -28,6 +35,16 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [Platform.SWITCH, Platform.BINARY_SENSOR, Platform.SENSOR, Platform.SELECT, Platform.TEXT]
+
+
+async def async_write(call: Awaitable[bool], description: str) -> None:
+    """Run an API write and raise HomeAssistantError if it fails."""
+    try:
+        success = await call
+    except EdgeSwitchError as err:
+        raise HomeAssistantError(f"Failed to {description}: {err}") from err
+    if not success:
+        raise HomeAssistantError(f"Failed to {description}")
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -46,14 +63,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         session=session,
     )
 
-    # Authenticate with the switch
-    if not await api.authenticate():
-        _LOGGER.error("Failed to authenticate with EdgeSwitch at %s", host)
-        return False
-
-    # Get system and device info for device registration
-    system_info = await api.get_system_info()
-    device_info_data = await api.get_device_info()
+    # Authenticate and get system/device info for device registration.
+    # There is no reauth flow, so auth failures are retried like connection
+    # failures (ConfigEntryNotReady) instead of raising ConfigEntryAuthFailed.
+    try:
+        await api.authenticate()
+        system_info = await api.get_system_info()
+        device_info_data = await api.get_device_info()
+    except EdgeSwitchAuthError as err:
+        raise ConfigEntryNotReady(
+            f"Authentication with EdgeSwitch at {host} failed: {err}"
+        ) from err
+    except EdgeSwitchError as err:
+        raise ConfigEntryNotReady(
+            f"Cannot connect to EdgeSwitch at {host}: {err}"
+        ) from err
 
     identification = device_info_data.get("identification", {})
 
@@ -89,12 +113,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         nonlocal features
 
         try:
-            # Re-authenticate if needed
-            if not api._authenticated:
-                _LOGGER.debug("Re-authenticating with EdgeSwitch")
-                if not await api.authenticate():
-                    raise UpdateFailed("Failed to authenticate with EdgeSwitch")
-
+            # Login / re-login on expired sessions is handled by the API client
             data: dict[str, Any] = {
                 "ports": [],
                 "statistics": {},
@@ -106,22 +125,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 "features": features,
             }
 
-            # Fetch ports (required for basic functionality)
-            try:
-                ports = await api.get_ports()
-                if ports:
-                    data["ports"] = ports
-                    features[FEATURE_PORTS] = True
-                    # Check if any port has PoE
-                    for port in ports:
-                        if port.get("poe") is not None:
-                            features[FEATURE_POE_SUPPORT] = True
-                            break
-                    _LOGGER.debug("Fetched %d ports", len(ports))
-                else:
-                    _LOGGER.warning("No ports returned from API")
-            except Exception as err:
-                _LOGGER.warning("Failed to fetch ports: %s", err)
+            # Fetch ports (required for basic functionality; any error fails the update)
+            ports = await api.get_ports()
+            if ports:
+                data["ports"] = ports
+                features[FEATURE_PORTS] = True
+                # Check if any port has PoE
+                for port in ports:
+                    if port.get("poe") is not None:
+                        features[FEATURE_POE_SUPPORT] = True
+                        break
+                _LOGGER.debug("Fetched %d ports", len(ports))
+            else:
+                _LOGGER.warning("No ports returned from API")
+
+            # Optional data below degrades gracefully, except on auth/connection
+            # failures, which fail the whole update.
 
             # Fetch statistics (optional)
             try:
@@ -130,6 +149,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     data["statistics"] = statistics
                     features[FEATURE_STATISTICS] = True
                     _LOGGER.debug("Statistics fetched successfully")
+            except (EdgeSwitchAuthError, EdgeSwitchConnectionError):
+                raise
             except Exception as err:
                 _LOGGER.debug("Statistics not available: %s", err)
 
@@ -139,6 +160,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 if device_info_api:
                     data["device_info"] = device_info_api
                     _LOGGER.debug("Device info fetched successfully")
+            except (EdgeSwitchAuthError, EdgeSwitchConnectionError):
+                raise
             except Exception as err:
                 _LOGGER.debug("Device info not available: %s", err)
 
@@ -177,6 +200,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     data["port_vlans"] = port_vlans
                     features[FEATURE_VLANS] = True
                     _LOGGER.debug("Fetched %d VLANs, %d trunk ports", len(vlans), len(trunk_ports))
+            except (EdgeSwitchAuthError, EdgeSwitchConnectionError):
+                raise
             except Exception as err:
                 _LOGGER.debug("VLANs not available: %s", err)
 
@@ -190,23 +215,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     if "stp" in sys_info:
                         features[FEATURE_STP_SUPPORT] = True
                     _LOGGER.debug("System info fetched successfully")
+            except (EdgeSwitchAuthError, EdgeSwitchConnectionError):
+                raise
             except Exception as err:
                 _LOGGER.debug("System info not available: %s", err)
 
             data["features"] = features
             return data
 
-        except UpdateFailed:
-            raise
-        except Exception as err:
-            # Try to re-authenticate on error
-            api._authenticated = False
-            _LOGGER.error("Error communicating with EdgeSwitch: %s", err)
+        except EdgeSwitchAuthError as err:
+            # No reauth flow exists, so report as a failed update and retry
+            raise UpdateFailed(f"Authentication with EdgeSwitch failed: {err}") from err
+        except EdgeSwitchError as err:
             raise UpdateFailed(f"Error communicating with EdgeSwitch: {err}") from err
+        except Exception as err:
+            raise UpdateFailed(f"Unexpected error updating EdgeSwitch: {err}") from err
 
     coordinator = DataUpdateCoordinator(
         hass,
         _LOGGER,
+        config_entry=entry,
         name=f"EdgeSwitch {host}",
         update_method=async_update_data,
         update_interval=timedelta(seconds=DEFAULT_SCAN_INTERVAL),
@@ -247,10 +275,3 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.data[DOMAIN].pop(entry.entry_id)
 
     return unload_ok
-
-
-async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload config entry."""
-    _LOGGER.debug("Reloading EdgeSwitch integration")
-    await async_unload_entry(hass, entry)
-    await async_setup_entry(hass, entry)

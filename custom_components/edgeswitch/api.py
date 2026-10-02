@@ -30,6 +30,22 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
+class EdgeSwitchError(Exception):
+    """Base error for EdgeSwitch API failures."""
+
+
+class EdgeSwitchConnectionError(EdgeSwitchError):
+    """The switch could not be reached or returned an unusable response."""
+
+
+class EdgeSwitchAuthError(EdgeSwitchError):
+    """The switch rejected the credentials."""
+
+
+_AUTH_FAILED_STATUSES = (401, 403)
+_WRITE_OK_STATUSES = (200, 201, 204)
+
+
 class EdgeSwitchAPI:
     """API client for EdgeSwitch devices."""
 
@@ -38,33 +54,20 @@ class EdgeSwitchAPI:
         host: str,
         username: str,
         password: str,
-        session: aiohttp.ClientSession | None = None,
+        session: aiohttp.ClientSession,
     ) -> None:
-        """Initialize the API client."""
+        """Initialize the API client.
+
+        The session must not verify SSL (the switch uses a self-signed cert).
+        """
         self._host = host
         self._username = username
         self._password = password
         self._session = session
-        self._owns_session = session is None
         self._base_url = f"https://{host}"
         self._authenticated = False
         self._auth_token: str | None = None
         _LOGGER.debug("EdgeSwitch API client initialized for host: %s", host)
-
-    async def _get_session(self) -> aiohttp.ClientSession:
-        """Get or create the aiohttp session."""
-        if self._session is None:
-            _LOGGER.debug("Creating new aiohttp session with SSL verification disabled")
-            connector = aiohttp.TCPConnector(ssl=False)
-            self._session = aiohttp.ClientSession(connector=connector)
-        return self._session
-
-    async def close(self) -> None:
-        """Close the session."""
-        if self._owns_session and self._session:
-            _LOGGER.debug("Closing aiohttp session")
-            await self._session.close()
-            self._session = None
 
     def _get_headers(self, include_auth: bool = True) -> dict[str, str]:
         """Get headers for API requests."""
@@ -80,141 +83,166 @@ class EdgeSwitchAPI:
         return headers
 
     async def authenticate(self) -> bool:
-        """Authenticate with the EdgeSwitch."""
+        """Authenticate with the EdgeSwitch.
+
+        Returns True on success. Raises EdgeSwitchAuthError if the credentials
+        are rejected, EdgeSwitchConnectionError if the switch is unreachable.
+        """
         _LOGGER.debug("Attempting to authenticate with EdgeSwitch at %s", self._host)
-        session = await self._get_session()
+        self._authenticated = False
+        self._auth_token = None
+        login_data = {
+            "username": self._username,
+            "password": self._password,
+        }
 
         try:
-            login_data = {
-                "username": self._username,
-                "password": self._password,
-            }
-
-            async with session.post(
+            async with self._session.post(
                 f"{self._base_url}{API_LOGIN}",
                 json=login_data,
                 headers=self._get_headers(include_auth=False),
                 timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
             ) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    if data.get("statusCode") == 200 or data.get("message") == "Success":
-                        self._auth_token = response.headers.get("x-auth-token")
-                        if self._auth_token:
-                            self._authenticated = True
-                            _LOGGER.info("Successfully authenticated with EdgeSwitch at %s", self._host)
-                            return True
-                    _LOGGER.warning("Authentication response OK but invalid data: %s", data)
-                else:
-                    _LOGGER.warning("Authentication failed with status %s", response.status)
-
-            _LOGGER.error("Authentication failed for EdgeSwitch at %s", self._host)
-            return False
-
-        except asyncio.TimeoutError:
-            _LOGGER.error("Timeout connecting to EdgeSwitch at %s", self._host)
-            return False
+                if response.status in _AUTH_FAILED_STATUSES:
+                    raise EdgeSwitchAuthError(
+                        f"Login rejected by {self._host} (HTTP {response.status})"
+                    )
+                if response.status != 200:
+                    raise EdgeSwitchConnectionError(
+                        f"Login to {self._host} failed with HTTP {response.status}"
+                    )
+                data = await response.json(content_type=None)
+                token = response.headers.get(HEADER_AUTH_TOKEN)
+        except asyncio.TimeoutError as err:
+            raise EdgeSwitchConnectionError(
+                f"Timeout connecting to EdgeSwitch at {self._host}"
+            ) from err
         except aiohttp.ClientError as err:
-            _LOGGER.error("Connection error to EdgeSwitch at %s: %s", self._host, err)
-            return False
-        except Exception as err:
-            _LOGGER.exception("Unexpected error during authentication: %s", err)
-            return False
+            raise EdgeSwitchConnectionError(
+                f"Connection error to EdgeSwitch at {self._host}: {err}"
+            ) from err
+        except ValueError as err:
+            raise EdgeSwitchConnectionError(
+                f"Invalid login response from {self._host}: {err}"
+            ) from err
+
+        ok = isinstance(data, dict) and (
+            data.get("statusCode") == 200 or data.get("message") == "Success"
+        )
+        if not ok or not token:
+            _LOGGER.debug("Authentication response OK but invalid data: %s", data)
+            raise EdgeSwitchAuthError(f"Login to {self._host} did not return a token")
+
+        self._auth_token = token
+        self._authenticated = True
+        _LOGGER.debug("Successfully authenticated with EdgeSwitch at %s", self._host)
+        return True
+
+    async def _request(
+        self, method: str, path: str, payload: Any = None
+    ) -> tuple[int, Any]:
+        """Perform an authenticated request and return (status, body).
+
+        Logs in if needed. On 401/403 the session is reset, a fresh login is
+        performed and the request retried once; a second rejection raises
+        EdgeSwitchAuthError. Timeouts and transport errors raise
+        EdgeSwitchConnectionError. Other HTTP statuses are returned to the
+        caller. The body is parsed JSON for 200 responses, text otherwise.
+        """
+        for attempt in (1, 2):
+            if not self._authenticated:
+                await self.authenticate()
+
+            try:
+                async with self._session.request(
+                    method,
+                    f"{self._base_url}{path}",
+                    headers=self._get_headers(),
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
+                ) as response:
+                    status = response.status
+                    if status in _AUTH_FAILED_STATUSES:
+                        self._authenticated = False
+                        self._auth_token = None
+                        if attempt == 1:
+                            _LOGGER.debug(
+                                "%s %s returned HTTP %s, re-authenticating",
+                                method, path, status,
+                            )
+                            continue
+                        raise EdgeSwitchAuthError(
+                            f"{method} {path} rejected after re-login (HTTP {status})"
+                        )
+                    if status == 200 and method == "GET":
+                        return status, await response.json(content_type=None)
+                    return status, await response.text()
+            except asyncio.TimeoutError as err:
+                raise EdgeSwitchConnectionError(
+                    f"Timeout on {method} {path} at {self._host}"
+                ) from err
+            except aiohttp.ClientError as err:
+                raise EdgeSwitchConnectionError(
+                    f"Connection error on {method} {path} at {self._host}: {err}"
+                ) from err
+            except ValueError as err:
+                raise EdgeSwitchConnectionError(
+                    f"Invalid JSON from {method} {path} at {self._host}: {err}"
+                ) from err
+
+        raise EdgeSwitchAuthError(f"{method} {path} could not be authenticated")
+
+    async def _get(self, path: str) -> Any | None:
+        """GET a resource. Returns None if the switch does not support it (404)."""
+        status, data = await self._request("GET", path)
+        if status == 200:
+            return data
+        if status == 404:
+            _LOGGER.debug("Endpoint %s not supported (HTTP 404)", path)
+            return None
+        raise EdgeSwitchError(f"GET {path} failed with HTTP {status}")
+
+    async def _put(self, path: str, payload: Any) -> bool:
+        """PUT a resource. Returns False if the switch rejected the change."""
+        status, text = await self._request("PUT", path, payload)
+        if status in _WRITE_OK_STATUSES:
+            return True
+        _LOGGER.error("PUT %s failed: HTTP %s - %s", path, status, text)
+        return False
 
     async def get_system_info(self) -> dict[str, Any]:
         """Get system information."""
         _LOGGER.debug("Fetching system info from %s", self._host)
-        session = await self._get_session()
-
-        try:
-            async with session.get(
-                f"{self._base_url}{API_SYSTEM}",
-                headers=self._get_headers(),
-                timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
-            ) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    _LOGGER.debug("System info retrieved: hostname=%s", data.get("hostname"))
-                    return data
-                _LOGGER.warning("Failed to get system info: HTTP %s", response.status)
-
+        data = await self._get(API_SYSTEM)
+        if not isinstance(data, dict):
             return {}
-
-        except asyncio.TimeoutError:
-            _LOGGER.warning("Timeout getting system info from %s", self._host)
-            return {}
-        except aiohttp.ClientError as err:
-            _LOGGER.warning("Connection error getting system info: %s", err)
-            return {}
-        except Exception as err:
-            _LOGGER.error("Error getting system info: %s", err)
-            return {}
+        _LOGGER.debug("System info retrieved: hostname=%s", data.get("hostname"))
+        return data
 
     async def get_device_info(self) -> dict[str, Any]:
         """Get device information including model and firmware."""
         _LOGGER.debug("Fetching device info from %s", self._host)
-        session = await self._get_session()
-
-        try:
-            async with session.get(
-                f"{self._base_url}{API_DEVICE}",
-                headers=self._get_headers(),
-                timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
-            ) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    ident = data.get("identification", {})
-                    _LOGGER.debug(
-                        "Device info retrieved: model=%s, firmware=%s",
-                        ident.get("model"),
-                        ident.get("firmwareVersion"),
-                    )
-                    return data
-                _LOGGER.warning("Failed to get device info: HTTP %s", response.status)
-
+        data = await self._get(API_DEVICE)
+        if not isinstance(data, dict):
             return {}
-
-        except asyncio.TimeoutError:
-            _LOGGER.warning("Timeout getting device info from %s", self._host)
-            return {}
-        except aiohttp.ClientError as err:
-            _LOGGER.warning("Connection error getting device info: %s", err)
-            return {}
-        except Exception as err:
-            _LOGGER.error("Error getting device info: %s", err)
-            return {}
+        ident = data.get("identification", {})
+        _LOGGER.debug(
+            "Device info retrieved: model=%s, firmware=%s",
+            ident.get("model"),
+            ident.get("firmwareVersion"),
+        )
+        return data
 
     async def get_interfaces(self) -> list[dict[str, Any]]:
         """Get all interface information."""
         _LOGGER.debug("Fetching interfaces from %s", self._host)
-        session = await self._get_session()
-
-        try:
-            async with session.get(
-                f"{self._base_url}{API_INTERFACES}",
-                headers=self._get_headers(),
-                timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
-            ) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    if isinstance(data, list):
-                        _LOGGER.debug("Retrieved %d interfaces", len(data))
-                        return data
-                    _LOGGER.warning("Interfaces response is not a list: %s", type(data))
-                else:
-                    _LOGGER.warning("Failed to get interfaces: HTTP %s", response.status)
-
+        data = await self._get(API_INTERFACES)
+        if data is None:
             return []
-
-        except asyncio.TimeoutError:
-            _LOGGER.warning("Timeout getting interfaces from %s", self._host)
-            return []
-        except aiohttp.ClientError as err:
-            _LOGGER.warning("Connection error getting interfaces: %s", err)
-            return []
-        except Exception as err:
-            _LOGGER.error("Error getting interfaces: %s", err)
-            return []
+        if not isinstance(data, list):
+            raise EdgeSwitchError(f"Interfaces response is not a list: {type(data)}")
+        _LOGGER.debug("Retrieved %d interfaces", len(data))
+        return data
 
     async def get_ports(self) -> list[dict[str, Any]]:
         """Get all port information (physical ports only, no LAGs)."""
@@ -270,95 +298,42 @@ class EdgeSwitchAPI:
         """Update an interface by sending full object to collection endpoint."""
         port_id = interface_data.get("identification", {}).get("id", "unknown")
         _LOGGER.debug("Updating interface %s", port_id)
-        session = await self._get_session()
-
-        try:
-            # API requires array of interfaces
-            payload = [interface_data]
-
-            async with session.put(
-                f"{self._base_url}{API_INTERFACES}",
-                headers=self._get_headers(),
-                json=payload,
-                timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
-            ) as response:
-                if response.status in (200, 201, 204):
-                    _LOGGER.debug("Successfully updated interface %s", port_id)
-                    return True
-                else:
-                    text = await response.text()
-                    _LOGGER.error(
-                        "Failed to update interface %s: HTTP %s - %s",
-                        port_id, response.status, text
-                    )
-
-            return False
-
-        except asyncio.TimeoutError:
-            _LOGGER.error("Timeout updating interface %s", port_id)
-            return False
-        except aiohttp.ClientError as err:
-            _LOGGER.error("Connection error updating interface %s: %s", port_id, err)
-            return False
-        except Exception as err:
-            _LOGGER.exception("Error updating interface %s: %s", port_id, err)
-            return False
+        # API requires array of interfaces
+        return await self._put(API_INTERFACES, [interface_data])
 
     async def set_port_enabled(self, port_id: str, enabled: bool) -> bool:
         """Enable or disable a port."""
         _LOGGER.info("Setting port %s enabled=%s", port_id, enabled)
-        try:
-            iface = await self._get_interface(port_id)
-            if not iface:
-                _LOGGER.error("Cannot set port enabled: interface %s not found", port_id)
-                return False
-
-            if "status" not in iface:
-                _LOGGER.error("Interface %s has no status field", port_id)
-                return False
-
-            iface["status"]["enabled"] = enabled
-
-            success = await self._update_interface(iface)
-            if success:
-                _LOGGER.info("Successfully set port %s enabled=%s", port_id, enabled)
-            else:
-                _LOGGER.error("Failed to set port %s enabled=%s", port_id, enabled)
-            return success
-
-        except Exception as err:
-            _LOGGER.exception("Error setting port %s enabled state: %s", port_id, err)
+        iface = await self._get_interface(port_id)
+        if not iface:
+            _LOGGER.error("Cannot set port enabled: interface %s not found", port_id)
             return False
+
+        if "status" not in iface:
+            _LOGGER.error("Interface %s has no status field", port_id)
+            return False
+
+        iface["status"]["enabled"] = enabled
+        return await self._update_interface(iface)
 
     async def set_poe_mode(self, port_id: str, mode: str) -> bool:
         """Set PoE mode on a port. Mode can be 'off', 'active', or '24v'."""
         _LOGGER.info("Setting port %s PoE mode=%s", port_id, mode)
-        try:
-            iface = await self._get_interface(port_id)
-            if not iface:
-                _LOGGER.error("Cannot set PoE mode: interface %s not found", port_id)
-                return False
-
-            if "port" not in iface:
-                _LOGGER.error("Interface %s has no port settings (PoE not supported?)", port_id)
-                return False
-
-            if "poe" not in iface["port"]:
-                _LOGGER.warning("Interface %s does not have PoE capability", port_id)
-                return False
-
-            iface["port"]["poe"] = mode
-
-            success = await self._update_interface(iface)
-            if success:
-                _LOGGER.info("Successfully set port %s PoE mode=%s", port_id, mode)
-            else:
-                _LOGGER.error("Failed to set port %s PoE mode=%s", port_id, mode)
-            return success
-
-        except Exception as err:
-            _LOGGER.exception("Error setting PoE mode on port %s: %s", port_id, err)
+        iface = await self._get_interface(port_id)
+        if not iface:
+            _LOGGER.error("Cannot set PoE mode: interface %s not found", port_id)
             return False
+
+        if "port" not in iface:
+            _LOGGER.error("Interface %s has no port settings (PoE not supported?)", port_id)
+            return False
+
+        if "poe" not in iface["port"]:
+            _LOGGER.warning("Interface %s does not have PoE capability", port_id)
+            return False
+
+        iface["port"]["poe"] = mode
+        return await self._update_interface(iface)
 
     async def set_poe_enabled(self, port_id: str, enabled: bool) -> bool:
         """Enable or disable PoE on a port."""
@@ -369,219 +344,70 @@ class EdgeSwitchAPI:
     async def set_port_speed(self, port_id: str, speed: str) -> bool:
         """Set port speed. Valid values: auto, 10-half, 10-full, 100-half, 100-full, 1000-full."""
         _LOGGER.info("Setting port %s speed=%s", port_id, speed)
-        try:
-            iface = await self._get_interface(port_id)
-            if not iface:
-                _LOGGER.error("Cannot set port speed: interface %s not found", port_id)
-                return False
-
-            if "status" not in iface:
-                _LOGGER.error("Interface %s has no status field", port_id)
-                return False
-
-            iface["status"]["speed"] = speed
-
-            success = await self._update_interface(iface)
-            if success:
-                _LOGGER.info("Successfully set port %s speed=%s", port_id, speed)
-            else:
-                _LOGGER.error("Failed to set port %s speed=%s", port_id, speed)
-            return success
-
-        except Exception as err:
-            _LOGGER.exception("Error setting port %s speed: %s", port_id, err)
+        iface = await self._get_interface(port_id)
+        if not iface:
+            _LOGGER.error("Cannot set port speed: interface %s not found", port_id)
             return False
+
+        if "status" not in iface:
+            _LOGGER.error("Interface %s has no status field", port_id)
+            return False
+
+        iface["status"]["speed"] = speed
+        return await self._update_interface(iface)
 
     async def set_port_name(self, port_id: str, name: str) -> bool:
         """Set port name/description."""
         _LOGGER.info("Setting port %s name='%s'", port_id, name)
-        try:
-            # Get current interface data
-            iface = await self._get_interface(port_id)
-            if not iface:
-                _LOGGER.error("Cannot set port name: interface %s not found", port_id)
-                return False
-
-            if "identification" not in iface:
-                _LOGGER.error("Interface %s has no identification field", port_id)
-                return False
-
-            # Update the name
-            iface["identification"]["name"] = name
-
-            success = await self._update_interface(iface)
-            if success:
-                _LOGGER.info("Successfully set port %s name='%s'", port_id, name)
-            else:
-                _LOGGER.error("Failed to set port %s name='%s'", port_id, name)
-            return success
-
-        except Exception as err:
-            _LOGGER.exception("Error setting port %s name: %s", port_id, err)
+        iface = await self._get_interface(port_id)
+        if not iface:
+            _LOGGER.error("Cannot set port name: interface %s not found", port_id)
             return False
+
+        if "identification" not in iface:
+            _LOGGER.error("Interface %s has no identification field", port_id)
+            return False
+
+        iface["identification"]["name"] = name
+        return await self._update_interface(iface)
 
     async def set_system_hostname(self, hostname: str) -> bool:
         """Set system hostname."""
         _LOGGER.info("Setting system hostname='%s'", hostname)
-        session = await self._get_session()
-
-        try:
-            payload = {"hostname": hostname}
-
-            async with session.put(
-                f"{self._base_url}{API_SYSTEM}",
-                headers=self._get_headers(),
-                json=payload,
-                timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
-            ) as response:
-                if response.status in (200, 201, 204):
-                    _LOGGER.info("Successfully set hostname='%s'", hostname)
-                    return True
-                else:
-                    text = await response.text()
-                    _LOGGER.error("Failed to set hostname: HTTP %s - %s", response.status, text)
-
-            return False
-
-        except asyncio.TimeoutError:
-            _LOGGER.error("Timeout setting hostname")
-            return False
-        except aiohttp.ClientError as err:
-            _LOGGER.error("Connection error setting hostname: %s", err)
-            return False
-        except Exception as err:
-            _LOGGER.exception("Error setting hostname: %s", err)
-            return False
+        return await self._put(API_SYSTEM, {"hostname": hostname})
 
     async def set_system_timezone(self, timezone: str) -> bool:
         """Set system timezone."""
         _LOGGER.info("Setting system timezone='%s'", timezone)
-        session = await self._get_session()
-
-        try:
-            payload = {"timezone": timezone}
-
-            async with session.put(
-                f"{self._base_url}{API_SYSTEM}",
-                headers=self._get_headers(),
-                json=payload,
-                timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
-            ) as response:
-                if response.status in (200, 201, 204):
-                    _LOGGER.info("Successfully set timezone='%s'", timezone)
-                    return True
-                else:
-                    text = await response.text()
-                    _LOGGER.error("Failed to set timezone: HTTP %s - %s", response.status, text)
-
-            return False
-
-        except asyncio.TimeoutError:
-            _LOGGER.error("Timeout setting timezone")
-            return False
-        except aiohttp.ClientError as err:
-            _LOGGER.error("Connection error setting timezone: %s", err)
-            return False
-        except Exception as err:
-            _LOGGER.exception("Error setting timezone: %s", err)
-            return False
+        return await self._put(API_SYSTEM, {"timezone": timezone})
 
     async def set_stp_enabled(self, enabled: bool) -> bool:
         """Enable or disable STP globally."""
         _LOGGER.info("Setting STP enabled=%s", enabled)
-        session = await self._get_session()
-
-        try:
-            payload = {"stp": {"enabled": enabled}}
-
-            async with session.put(
-                f"{self._base_url}{API_SYSTEM}",
-                headers=self._get_headers(),
-                json=payload,
-                timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
-            ) as response:
-                if response.status in (200, 201, 204):
-                    _LOGGER.info("Successfully set STP enabled=%s", enabled)
-                    return True
-                else:
-                    text = await response.text()
-                    _LOGGER.error("Failed to set STP: HTTP %s - %s", response.status, text)
-
-            return False
-
-        except asyncio.TimeoutError:
-            _LOGGER.error("Timeout setting STP")
-            return False
-        except aiohttp.ClientError as err:
-            _LOGGER.error("Connection error setting STP: %s", err)
-            return False
-        except Exception as err:
-            _LOGGER.exception("Error setting STP: %s", err)
-            return False
+        return await self._put(API_SYSTEM, {"stp": {"enabled": enabled}})
 
     async def get_statistics(self) -> dict[str, Any]:
         """Get device statistics including CPU, RAM, and temperatures."""
         _LOGGER.debug("Fetching statistics from %s", self._host)
-        session = await self._get_session()
-
-        try:
-            async with session.get(
-                f"{self._base_url}{API_STATISTICS}",
-                headers=self._get_headers(),
-                timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
-            ) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    # API returns a list with one item
-                    if isinstance(data, list) and len(data) > 0:
-                        _LOGGER.debug("Statistics retrieved successfully")
-                        return data[0]
-                    elif isinstance(data, dict):
-                        _LOGGER.debug("Statistics retrieved (dict format)")
-                        return data
-                    _LOGGER.warning("Statistics response has unexpected format: %s", type(data))
-                else:
-                    _LOGGER.warning("Failed to get statistics: HTTP %s", response.status)
-
-            return {}
-
-        except asyncio.TimeoutError:
-            _LOGGER.warning("Timeout getting statistics from %s", self._host)
-            return {}
-        except aiohttp.ClientError as err:
-            _LOGGER.warning("Connection error getting statistics: %s", err)
-            return {}
-        except Exception as err:
-            _LOGGER.error("Error getting statistics: %s", err)
-            return {}
+        data = await self._get(API_STATISTICS)
+        # API returns a list with one item
+        if isinstance(data, list) and len(data) > 0:
+            return data[0]
+        if isinstance(data, dict):
+            return data
+        if data is not None:
+            _LOGGER.warning("Statistics response has unexpected format: %s", type(data))
+        return {}
 
     async def get_vlans(self) -> dict[str, Any]:
         """Get VLAN configuration including trunk ports and VLAN participation."""
         _LOGGER.debug("Fetching VLANs from %s", self._host)
-        session = await self._get_session()
-
-        try:
-            async with session.get(
-                f"{self._base_url}{API_VLANS}",
-                headers=self._get_headers(),
-                timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
-            ) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    vlan_count = len(data.get("vlans", []))
-                    trunk_count = len(data.get("trunks", []))
-                    _LOGGER.debug("VLANs retrieved: %d VLANs, %d trunks", vlan_count, trunk_count)
-                    return data
-                _LOGGER.warning("Failed to get VLANs: HTTP %s", response.status)
-
+        data = await self._get(API_VLANS)
+        if not isinstance(data, dict):
             return {"trunks": [], "vlans": []}
-
-        except asyncio.TimeoutError:
-            _LOGGER.warning("Timeout getting VLANs from %s", self._host)
-            return {"trunks": [], "vlans": []}
-        except aiohttp.ClientError as err:
-            _LOGGER.warning("Connection error getting VLANs: %s", err)
-            return {"trunks": [], "vlans": []}
-        except Exception as err:
-            _LOGGER.error("Error getting VLANs: %s", err)
-            return {"trunks": [], "vlans": []}
+        _LOGGER.debug(
+            "VLANs retrieved: %d VLANs, %d trunks",
+            len(data.get("vlans", [])),
+            len(data.get("trunks", [])),
+        )
+        return data

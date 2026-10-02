@@ -7,10 +7,12 @@ from typing import Any
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from . import async_write
 from .const import DOMAIN, SPEED_OPTIONS, SPEED_AUTO
 
 _LOGGER = logging.getLogger(__name__)
@@ -110,13 +112,14 @@ class EdgeSwitchPortSpeedSelect(CoordinatorEntity, SelectEntity):
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
         if option not in SPEED_OPTIONS:
-            _LOGGER.error("Invalid speed option '%s' for port %s", option, self._port_id)
-            return
+            raise ServiceValidationError(
+                f"Invalid speed option '{option}' for port {self._port_id}"
+            )
 
         _LOGGER.debug("Setting port %s speed to '%s'", self._port_id, option)
-        success = await self._api.set_port_speed(self._port_id, option)
-        if success:
-            _LOGGER.debug("Successfully set port %s speed to '%s', refreshing data", self._port_id, option)
-            await self.coordinator.async_request_refresh()
-        else:
-            _LOGGER.error("Failed to set port %s speed to '%s'", self._port_id, option)
+        await async_write(
+            self._api.set_port_speed(self._port_id, option),
+            f"set port {self._port_id} speed to '{option}'",
+        )
+        _LOGGER.debug("Successfully set port %s speed to '%s', refreshing data", self._port_id, option)
+        await self.coordinator.async_request_refresh()

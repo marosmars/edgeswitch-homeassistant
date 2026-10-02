@@ -7,6 +7,8 @@ import sys
 import os
 import importlib.util
 
+import aiohttp
+
 # Load api.py directly without importing the full package (avoids HA dependencies)
 api_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                         "custom_components", "edgeswitch", "api.py")
@@ -22,16 +24,18 @@ async def test_api(host: str, username: str, password: str, action: str = None, 
     print(f"EdgeSwitch API Test - {host}")
     print(f"{'='*60}\n")
 
-    api = EdgeSwitchAPI(host=host, username=username, password=password)
+    session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False))
+    api = EdgeSwitchAPI(host=host, username=username, password=password, session=session)
 
     try:
         # Test authentication
         print("[1] Authenticating...")
-        if await api.authenticate():
-            print(f"    ✓ Success! Token: {api._auth_token[:20]}...")
-        else:
-            print("    ✗ Authentication failed!")
+        try:
+            await api.authenticate()
+        except api_module.EdgeSwitchError as err:
+            print(f"    ✗ Authentication failed: {err}")
             return False
+        print(f"    ✓ Success! Token: {api._auth_token[:20]}...")
 
         # Get system info
         print("\n[2] Getting system info...")
@@ -245,7 +249,7 @@ async def test_api(host: str, username: str, password: str, action: str = None, 
         return False
 
     finally:
-        await api.close()
+        await session.close()
 
 
 def main():

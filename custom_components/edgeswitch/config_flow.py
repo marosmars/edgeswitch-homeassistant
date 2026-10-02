@@ -7,13 +7,14 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant import config_entries
+from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
-from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import DOMAIN, DEFAULT_USERNAME
-from .api import EdgeSwitchAPI
+from .api import EdgeSwitchAPI, EdgeSwitchAuthError, EdgeSwitchError
+from .const import DEFAULT_USERNAME, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -32,20 +33,20 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
         host=data[CONF_HOST],
         username=data[CONF_USERNAME],
         password=data[CONF_PASSWORD],
+        session=async_get_clientsession(hass, verify_ssl=False),
     )
 
     try:
-        if not await api.authenticate():
-            raise InvalidAuth
-
+        await api.authenticate()
         info = await api.get_system_info()
-        await api.close()
-
-        return {"title": info.get("hostname", f"EdgeSwitch {data[CONF_HOST]}")}
-    except Exception as err:
-        await api.close()
-        _LOGGER.error("Failed to connect to EdgeSwitch: %s", err)
+    except EdgeSwitchAuthError as err:
+        _LOGGER.debug("Invalid credentials for EdgeSwitch: %s", err)
+        raise InvalidAuth from err
+    except EdgeSwitchError as err:
+        _LOGGER.debug("Failed to connect to EdgeSwitch: %s", err)
         raise CannotConnect from err
+
+    return {"title": info.get("hostname", f"EdgeSwitch {data[CONF_HOST]}")}
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -55,7 +56,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle the initial step."""
         errors: dict[str, str] = {}
         if user_input is not None:

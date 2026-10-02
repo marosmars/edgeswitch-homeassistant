@@ -8,6 +8,7 @@
   "integration_type": "hub",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/marosmars/edgeswitch-homeassistant/issues",
-  "requirements": ["aiohttp>=3.8.0"],
-  "version": "1.1.0"
+  "loggers": ["custom_components.edgeswitch"],
+  "requirements": [],
+  "version": "1.2.0"
 }
