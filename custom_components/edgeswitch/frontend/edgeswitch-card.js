@@ -447,7 +447,7 @@ class EdgeSwitchCard extends HTMLElement {
         .chassis { display: flex; align-items: stretch; gap: 14px; padding: 8px 10px; color: var(--fp-text); }
         .ports { display: flex; gap: 12px; margin: 0 auto; min-width: 0; }
         .side { position: relative; flex: 0 0 300px; border-radius: 10px; background: var(--fp-panel); box-shadow: inset 0 1px 3px rgba(0,0,0,.15); }
-        .sidein { position: absolute; inset: 0; box-sizing: border-box; padding: 10px 12px; overflow: hidden;
+        .sidein { position: absolute; inset: 0; box-sizing: border-box; padding: 7px 12px; overflow: hidden;
                   display: flex; flex-direction: column; gap: 3px; }
         .rjgrid { display: grid; grid-template-columns: repeat(var(--cols), minmax(92px, 120px)); grid-template-rows: auto auto; gap: 4px 8px; }
         .sfpgrid { display: grid; grid-template-rows: auto auto; gap: 2px; padding-left: 8px; border-left: 1px solid var(--fp-sep); }
@@ -524,16 +524,17 @@ class EdgeSwitchCard extends HTMLElement {
               background: var(--primary-color); color: var(--text-primary-color, #fff); font-size: 14px; font-weight: 700; }
         .x { flex: none; border: none; background: none; padding: 2px; cursor: pointer; color: var(--fp-dim); display: flex; }
         .x ha-icon { --mdc-icon-size: 18px; }
-        .pmeta { font-size: 12px; color: var(--fp-text); }
+        .pmeta { font-size: 12px; line-height: 15px; color: var(--fp-text); }
+        .pmeta.bad { color: var(--bad); }
         .pmeta.one { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .prate { display: flex; gap: 8px; white-space: nowrap; overflow: hidden; font-variant-numeric: tabular-nums; font-weight: 600; }
         .shield { --mdc-icon-size: 16px; color: var(--fp-dim); flex: none; }
         .dn-r { color: var(--fp-down); } .up-r { color: var(--fp-upl); }
         .bad { color: var(--bad); }
-        .pacts { display: flex; flex-direction: column; gap: 5px; margin-top: auto; }
+        .pacts { display: flex; flex-direction: column; gap: 3px; margin-top: auto; }
         .prow { display: flex; align-items: center; gap: 6px; }
         .gl { width: 34px; font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--fp-dim); }
-        .act { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 28px; padding: 0 10px;
+        .act { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 25px; padding: 0 10px;
                border-radius: 16px; border: 1px solid var(--divider-color); cursor: pointer; white-space: nowrap;
                background: var(--card-background-color); color: var(--primary-text-color); font: 600 12.5px/1 var(--ha-font-family-body, inherit); }
         .act ha-icon { --mdc-icon-size: 16px; }
