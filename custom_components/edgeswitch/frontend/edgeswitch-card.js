@@ -325,7 +325,7 @@ class EdgeSwitchCard extends HTMLElement {
         ${this._vlans.length ? `
         <div class="vlegend">
           <div class="vlh">${t.vlans}<span>${t.lgUntag} · ${t.lgTag}</span></div>
-          ${this._vlans.map((v) => `<span><i class="vsw" style="--vc:${v.color}"></i>${v.id} ${v.name}</span>`).join('')}
+          ${this._vlans.map((v) => `<span title="VLAN ${v.id}"><i class="vsw" style="--vc:${v.color}"></i>${v.name === `VLAN ${v.id}` ? v.name : `${v.id} ${v.name}`}</span>`).join('')}
         </div>` : ''}`;
     }
     const prot = this._config.protect.includes(x.n);
@@ -443,13 +443,11 @@ class EdgeSwitchCard extends HTMLElement {
         .vd { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; }
         .nv .jack, .nv .jack::before { border-color: var(--vc) !important; }
         .nv .jack { box-shadow: inset 0 2px 4px rgba(0,0,0,.8), 0 0 0 1px var(--vc); }
-        .vlegend { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 8px; margin-top: 6px; font-size: 11.5px; }
-        .vlh { grid-column: 1 / -1; display: flex; justify-content: space-between; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--fp-dim); }
+        .vlegend { display: flex; flex-wrap: wrap; gap: 3px 10px; margin-top: 6px; font-size: 11px; }
+        .vlh { width: 100%; display: flex; justify-content: space-between; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--fp-dim); }
         .vlh span { text-transform: none; letter-spacing: 0; font-weight: 400; }
-        .vlegend > span { display: flex; align-items: center; gap: 6px; }
-        .vsw { width: 14px; height: 9px; border-radius: 2px; border: 2px solid var(--vc); box-sizing: border-box; position: relative; }
-        .vsw::after { content: ''; position: absolute; right: -9px; top: 0; width: 5px; height: 5px; border-radius: 50%; background: var(--vc); }
-        .vlegend > span { padding-right: 6px; }
+        .vlegend > span { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+        .vsw { width: 10px; height: 10px; border-radius: 2px; background: var(--vc); flex: none; }
         .pvl { display: flex; align-items: center; gap: 4px; }
         .pvl b { font-weight: 600; margin-right: 6px; }
         .pvl .vd + b, .pvl .vd { margin-left: 0; }
