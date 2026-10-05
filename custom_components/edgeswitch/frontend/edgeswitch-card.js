@@ -316,7 +316,7 @@ class EdgeSwitchCard extends HTMLElement {
         <div class="jack">${x.watts > 0 ? `<span class="w">${x.watts.toFixed(1)}W</span>` : ''}${dots ? `<span class="dots">${dots}</span>` : ''}${x.slow ? `<span class="jspd">${x.speed}</span>` : ''}${busy ? '<ha-icon icon="mdi:loading" class="spin"></ha-icon>' : ''}</div>
         <span class="leds"><i class="l1"></i><i class="l2"></i></span>
       </div>`;
-    return `<div class="${cls}${nativeColor ? ' nv' : ''}"${nativeColor ? ` style="--vc:${nativeColor}"` : ''} data-port="${x.n}" title="${this._tip(x)}">${bottom ? jack + label : label + jack}</div>`;
+    return `<div class="${cls}${nativeColor ? ' nv' : ''}" style="order:${x.n};${nativeColor ? `--vc:${nativeColor}` : ''}" data-port="${x.n}" title="${this._tip(x)}">${bottom ? jack + label : label + jack}</div>`;
   }
 
   _chassis(ports) {
@@ -563,11 +563,29 @@ class EdgeSwitchCard extends HTMLElement {
           .vlegend { margin-top: 0; }
           .vlh { width: auto; gap: 8px; }
         }
-        /* phones: title on its own line, stat tiles below it */
+        /* small screens: never scroll sideways. Ports become a wrapping grid in port order (1, 2, 3 …),
+           every port with its label above the jack; the detail panel grows instead of being fixed. */
+        @container (max-width: 760px) {
+          .chassis-wrap { overflow: hidden; }
+          .chassis { padding: 8px; }
+          .ports { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 4px 6px; margin: 0; width: 100%; }
+          .rjgrid, .sfpgrid { display: contents; }
+          .cell, .cell.sfp { width: auto; min-width: 0; }
+          .cell.bot { flex-direction: column-reverse; }
+          .bot .lbl { flex-direction: column; }
+          .rj.bot .jack::before { top: auto; bottom: -6px; border-top: none; border-bottom: 1px solid var(--fp-jack-edge); border-radius: 0 0 2px 2px; }
+          .side { flex: none; }
+          .sidein { position: static; flex-direction: column; align-items: stretch; gap: 6px; }
+          .sidein:has(.pick) { flex-direction: row; }
+          .pacts { flex-direction: column; }
+          .prow { flex-wrap: wrap; }
+          .act { flex: 1 1 110px; width: auto; }
+        }
+        /* phones: title on its own line, stat tiles below it (wrapping, no scrolling) */
         @media (max-width: 600px) {
           .top { flex-wrap: wrap !important; }
-          .stats { width: 100%; overflow-x: auto; flex-wrap: nowrap; }
-          .stat { flex: 1 0 auto; min-width: 54px; }
+          .stats { width: 100%; flex-wrap: wrap; }
+          .stat { flex: 1 1 56px; min-width: 0; }
         }
       </style>
       <ha-card class="${this._hass.themes?.darkMode ? 'dark' : ''}" style="${this._config.accent ? `--card-accent:${this._config.accent}` : ''}">
